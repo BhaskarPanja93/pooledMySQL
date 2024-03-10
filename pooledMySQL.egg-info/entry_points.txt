@@ -1,0 +1,2 @@
+[console_scripts]
+pooledMySQL = pooledMySQL.MySQLPoolManager.__main__:main

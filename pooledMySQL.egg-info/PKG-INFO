@@ -1,0 +1,15 @@
+Metadata-Version: 2.1
+Name: pooledMySQL
+Version: 1.0.0
+Summary: A simple way to auto-scale MySQL connections as and when required, to prevent faced during multithreading.
+Author-email: Bhindi <bhaskarpanja93@gmail.com>
+Project-URL: Homepage, https://github.com/BhaskarPanja93/OpenSource
+Keywords: mysql,pool,threadedmysql,multithreading,thread,database,sql
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 3
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+Requires-Dist: mysql_connector_python>=8.3.0
+
+A simple way to auto-scale MySQL connections as and when required, to prevent faced during multithreading.
