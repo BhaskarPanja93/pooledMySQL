@@ -1,35 +1,112 @@
-"""
-mysqlPool()
-AutoScaling concurrent MySQL query handler that automatically creates and re-use old connections as per situation.
+__version__ = "2.0.0"
 
 
-To USE:
-Store the initialized class in a variable, Initialising the class needs:
-    4 compulsory parameters
-        user: Username for the database
-        password: Password for the database
-        dbName: Database name
-    2 optional parameters
-        host (default localhost): Location where the database is hosted e.g. localhost or any specific IP
-        logFile (default None): Absolute or relative text file location to write all errors raised
-        errorWriter (default None): CAN BE IGNORED. A custom function that takes 3 string arguments to write and/or process logs
-Later call the `execute` method with all the necessary parameters
-"""
+class Manager:
+    from time import sleep as __sleep
+    import mysql.connector as __mysqlConnector
+    import customisedLogs as __customisedLogs
 
 
-from time import sleep
-import mysql.connector
+    class __connectionWrapper:
+        import mysql.connector as __mysqlConnector
+        from mysql.connector.pooling import PooledMySQLConnection as __PooledMySQLConnection
+        from mysql.connector.abstracts import MySQLConnectionAbstract as __MySQLConnectionAbstract
+        import customisedLogs as __customisedLogs
+        from time import time as __time, sleep as __sleep
+        from threading import Thread as __Thread
+        def __init__(self, connection:__PooledMySQLConnection|__MySQLConnectionAbstract, cleanupCallback, logger:__customisedLogs.Manager):
+            self.idle = True
+            self.alive = True
+            self.sendKeepAliveAfter = 15
+            self.raw = connection
+            self.lastUsed = self.__time()
+            self.logger = logger
+            self.cleanupCallback = cleanupCallback
+            self.__Thread(target=self.__pinger).start()
 
-class MySQLPoolManager:
-    def __init__(self, user, password, dbName, host="127.0.0.1", port=3306, logFile=None, errorWriter=None):
-        self.connections = []
+
+        def __pinger(self):
+            """
+            While connection object is alive, keep pinging after every fixed interval
+            :return:
+            """
+            while self.alive:
+                timeUntilNextHeartbeat = self.sendKeepAliveAfter - (self.__time() - self.lastUsed)
+                while timeUntilNextHeartbeat>0:
+                    self.logger.skip("PING", f"Waiting {int(timeUntilNextHeartbeat)} secs")
+                    self.__sleep(timeUntilNextHeartbeat)
+                self.idle = False
+                try:
+                    self.raw.ping(True, 1, 1)
+                    self.logger.skip("PING", f"Success")
+                except self.__mysqlConnector.InterfaceError:
+                    self.logger.skip("PING", f"Failed")
+                    self.safeDeleteConnection()
+                self.idle = True
+            self.safeDeleteConnection()
+
+
+        def safeDeleteConnection(self):
+            """
+            Safely close and cleanup itself
+            :return:
+            """
+            self.alive = False
+            self.cleanupCallback(self)
+            self.raw.disconnect()
+            self.raw.close()
+
+
+        def execute(self, syntax:str):
+            """
+            Internally execute a MySQL syntax
+            :param syntax: Syntax to execute
+            :return:
+            """
+            start = self.__time()
+            while not self.idle and self.__time()-start<4:
+                self.__sleep(1)
+            if self.__time()-start>=4:
+                raise self.__mysqlConnector.InterfaceError("Couldn't Idle Connection")
+            self.idle = False
+            self.raw.consume_results()
+            cursor = self.raw.cursor()
+            cursor.execute(syntax)
+            data = cursor.fetchall()
+            self.lastUsed = self.__time()
+            self.idle = True
+            return data
+
+
+    def __init__(self, user:str, password:str, dbName:str, host:str="127.0.0.1", port:int=3306, logFile=None):
+        """
+        Initialise the Manager and then use the public functions to display coloured logs
+        :param user: Username to log in to the DB with
+        :param password: Password for the username provided
+        :param dbName: DataBase name to connect to
+        :param host: Server hostname or IP address
+        :param port: Port on which the server is connected to
+        :param logFile: Filename to log errors to, pass None to turn off file logging
+        """
+        self.__connections:list[Manager.__connectionWrapper] = []
+        self.__logger = Manager.__customisedLogs.Manager()
+        self.__password = password
         self.user = user
+        self.dbName = dbName
         self.host = host
         self.port = port
-        self.password = password
-        self.dbName = dbName
         self.logFile = logFile
-        self.errorWriter = errorWriter if errorWriter is not None else self.defaultErrorWriter
+
+
+    def __removeConnCallback(self, connection):
+        """
+        Callback to remove a connection object from available list (Called from the object itself)
+        :param connection: Connection who calls to be removed from list
+        :return:
+        """
+        if connection in self.__connections:
+            self.__connections.remove(connection)
+            self.__logger.info("MYSQL-POOL", "CLOSE", f"Total Connections: {len(self.__connections)}")
 
 
     def checkDatabaseStructure(self):
@@ -57,58 +134,65 @@ class MySQLPoolManager:
         pass
 
 
-    def defaultErrorWriter(self, category:str="", text:str="", extras:str="", log:bool=True):
+    def defaultErrorWriter(self, category:str="", text:str="", extras:str="", ignoreLog:bool=False):
         """
         Demo(default) function to write MySQL errors to output and file
         :param category: Category of the error
         :param text: Main text of the error
         :param extras: Additional text
-        :param log: Boolean specifying if the error has to be written to the file
+        :param ignoreLog: Boolean specifying if logging for current execution be ignored from log file
         """
-        string = f"[MYSQL POOL] [{category}]: {text} {extras}"
-        #print(string)
-        if log:
-            open(self.logFile, "a").write(string + "\n")
+        logString = self.__logger.fatal("MYSQL-POOL", category, text, extras)
+        if not ignoreLog and self.logFile: open(self.logFile, "a").write(logString + "\n")
 
 
-    def execute(self, syntax: str, ignoreErrors: bool=True, dbRequired: bool=True)->None|list:
+    def execute(self, syntax:str, catchErrors:bool=False, logIntoFile:bool=True, dbRequired:bool=True)-> None | list:
         """
         :param syntax: The MySQL syntax to execute
-        :param ignoreErrors: If errors are supposed to be caught promptly or sent to the main application
+        :param catchErrors: If errors are supposed to be caught promptly or sent to the main application
+        :param logIntoFile: Bool to say if logging into file is needed for this syntax. Skipped if ignoreErrors is set to False
         :param dbRequired: Boolean specifying if the syntax is supposed to be executed on the database or not. A database creation syntax doesn't need the database to be already present, so the argument should be False for those cases
         :return: None or list of tuples depending on the syntax passed
         """
-        while True:
+        _destroyAfterUse = False
+        _appendAfterUse = False
+        _newNeeded = False
+        _connectionFound = False
+        while not _connectionFound:
             try:
                 if not dbRequired:
-                    connection = mysql.connector.connect(user=self.user, host=self.host, port=self.port, password=self.password, autocommit=True)
-                    break
-                elif self.connections:
-                    connection = self.connections.pop()
-                    if connection.is_connected():
-                        break
+                    connObj = self.__connectionWrapper(self.__mysqlConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, autocommit=True), self.__removeConnCallback, self.__logger)
+                    self.__logger.info("MYSQL-POOL", "NEW", "New DB-LESS Connection")
+                    _destroyAfterUse = True
+                    _connectionFound = True
+                elif self.__connections and not _newNeeded:
+                    for connObj in self.__connections:
+                        if connObj.idle:
+                            self.__logger.info("MYSQL-POOL", "REUSE", f"Total Connections: {len(self.__connections)}")
+                            _connectionFound = True
+                            break
+                    else:
+                        _newNeeded = True
                 else:
-                    connection = mysql.connector.connect(user=self.user, host=self.host, port=self.port, password=self.password, database=self.dbName, autocommit=True)
-                    break
-                connection.consume_results()
+                    connObj = self.__connectionWrapper(Manager.__mysqlConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, database=self.dbName, autocommit=True), self.__removeConnCallback, self.__logger)
+                    _appendAfterUse = True
+                    _connectionFound = True
             except Exception as e:
-                self.errorWriter("CONNECTION FAIL", repr(e))
-                if ignoreErrors:
-                    pass
-                else:
+                self.defaultErrorWriter("CONNECTION FAIL", repr(e))
+                if not catchErrors:
                     raise e
-                sleep(1)
-        cursor = connection.cursor()
+                Manager.__sleep(0.5)
         try:
-            cursor.execute(syntax)
-            data = cursor.fetchall()
+            data = connObj.execute(syntax)
         except Exception as e:
             data = None
-            if ignoreErrors:
-                pass
-            else:
-                self.errorWriter(text=repr(e), extras=syntax)
+            if not catchErrors:
+                self.defaultErrorWriter("EXECUTION FAIL", repr(e), syntax, ignoreLog=not logIntoFile)
                 raise e
-        connection.consume_results()
-        self.connections.append(connection)
+        if _destroyAfterUse: connObj.safeDeleteConnection()
+        elif _appendAfterUse:
+            _old = len(self.__connections)
+            self.__connections.append(connObj)
+            _new = len(self.__connections)
+            self.__logger.info("MYSQL-POOL", "NEW", f"Total Connections: {_old}->{_new}")
         return data
