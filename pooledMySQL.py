@@ -1,4 +1,4 @@
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 
 class Manager:
@@ -80,7 +80,7 @@ class Manager:
 
     def __init__(self, user:str, password:str, dbName:str, host:str="127.0.0.1", port:int=3306, logFile=None):
         """
-        Initialise the Manager and then use the public functions to display coloured logs
+        Initialise the Manager and use the execute() functions to use the MySQL connection pool for executing MySQL queries
         :param user: Username to log in to the DB with
         :param password: Password for the username provided
         :param dbName: DataBase name to connect to
@@ -89,7 +89,7 @@ class Manager:
         :param logFile: Filename to log errors to, pass None to turn off file logging
         """
         self.__connections:list[Manager.__connectionWrapper] = []
-        self.__logger = Manager.__customisedLogs.Manager()
+        self.__logger = self.__customisedLogs.Manager()
         self.__password = password
         self.user = user
         self.dbName = dbName
@@ -136,7 +136,7 @@ class Manager:
 
     def defaultErrorWriter(self, category:str="", text:str="", extras:str="", ignoreLog:bool=False):
         """
-        Demo(default) function to write MySQL errors to output and file
+        Default function to write MySQL logs to terminal and logfile
         :param category: Category of the error
         :param text: Main text of the error
         :param extras: Additional text
@@ -174,14 +174,14 @@ class Manager:
                     else:
                         _newNeeded = True
                 else:
-                    connObj = self.__connectionWrapper(Manager.__mysqlConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, database=self.dbName, autocommit=True), self.__removeConnCallback, self.__logger)
+                    connObj = self.__connectionWrapper(self.__mysqlConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, database=self.dbName, autocommit=True), self.__removeConnCallback, self.__logger)
                     _appendAfterUse = True
                     _connectionFound = True
             except Exception as e:
                 self.defaultErrorWriter("CONNECTION FAIL", repr(e))
                 if not catchErrors:
                     raise e
-                Manager.__sleep(0.5)
+                self.__sleep(0.5)
         try:
             data = connObj.execute(syntax)
         except Exception as e:

@@ -1,4 +1,4 @@
-# pooledMySQL v2.0.0
+# pooledMySQL v2.0.1
 
 ```pip install pooledMySQL --upgrade```
 
@@ -19,9 +19,9 @@ python3 -m pip install pooledMySQL --upgrade
 ```
 from pooledMySQL import Manager as MySQLManager
 
-logger = MySQLManager("root", "SomePassword", "DatabaseName")
+executorMySQL = MySQLManager("root", "SomePassword", "DatabaseName")
 
-listOfTuples = logger.execute("SELECT * from someTable")
+listOfTuples = executorMySQL.execute("SELECT * from someTable")
 
 for individualTuple in listOfTuples:
     print(individualTuple[0])
