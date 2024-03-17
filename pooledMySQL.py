@@ -1,83 +1,7 @@
-__version__ = "2.0.2"
+__version__ = "2.1.0"
 
 
 class Manager:
-    from time import sleep as __sleep
-    import mysql.connector as __mysqlConnector
-    import customisedLogs as __customisedLogs
-
-
-    class __connectionWrapper:
-        import mysql.connector as __mysqlConnector
-        from mysql.connector.pooling import PooledMySQLConnection as __PooledMySQLConnection
-        from mysql.connector.abstracts import MySQLConnectionAbstract as __MySQLConnectionAbstract
-        import customisedLogs as __customisedLogs
-        from time import time as __time, sleep as __sleep
-        from threading import Thread as __Thread
-        def __init__(self, connection:__PooledMySQLConnection|__MySQLConnectionAbstract, cleanupCallback, logger:__customisedLogs.Manager):
-            self.idle = True
-            self.alive = True
-            self.sendKeepAliveAfter = 15
-            self.raw = connection
-            self.lastUsed = self.__time()
-            self.logger = logger
-            self.cleanupCallback = cleanupCallback
-            self.__Thread(target=self.__pinger).start()
-
-
-        def __pinger(self):
-            """
-            While connection object is alive, keep pinging after every fixed interval
-            :return:
-            """
-            while self.alive:
-                timeUntilNextHeartbeat = self.sendKeepAliveAfter - (self.__time() - self.lastUsed)
-                while timeUntilNextHeartbeat>0:
-                    self.logger.skip("PING", f"Waiting {int(timeUntilNextHeartbeat)} secs")
-                    self.__sleep(timeUntilNextHeartbeat)
-                self.idle = False
-                try:
-                    self.raw.ping(True, 1, 1)
-                    self.logger.skip("PING", f"Success")
-                except self.__mysqlConnector.InterfaceError:
-                    self.logger.skip("PING", f"Failed")
-                    self.safeDeleteConnection()
-                self.idle = True
-            self.safeDeleteConnection()
-
-
-        def safeDeleteConnection(self):
-            """
-            Safely close and cleanup itself
-            :return:
-            """
-            self.alive = False
-            self.cleanupCallback(self)
-            self.raw.disconnect()
-            self.raw.close()
-
-
-        def execute(self, syntax:str):
-            """
-            Internally execute a MySQL syntax
-            :param syntax: Syntax to execute
-            :return:
-            """
-            start = self.__time()
-            while not self.idle and self.__time()-start<4:
-                self.__sleep(1)
-            if self.__time()-start>=4:
-                raise self.__mysqlConnector.InterfaceError("Couldn't Idle Connection")
-            self.idle = False
-            self.raw.consume_results()
-            cursor = self.raw.cursor()
-            cursor.execute(syntax)
-            data = cursor.fetchall()
-            self.lastUsed = self.__time()
-            self.idle = True
-            return data
-
-
     def __init__(self, user:str, password:str, dbName:str, host:str="127.0.0.1", port:int=3306, logFile=None):
         """
         Initialise the Manager and use the execute() functions to use the MySQL connection pool for executing MySQL queries
@@ -88,6 +12,12 @@ class Manager:
         :param port: Port on which the server is connected to
         :param logFile: Filename to log errors to, pass None to turn off file logging
         """
+        from time import sleep as __sleep
+        import mysql.connector as __mysqlConnector
+        import customisedLogs as __customisedLogs
+        self.__sleep = __sleep
+        self.__mysqlConnector = __mysqlConnector
+        self.__customisedLogs = __customisedLogs
         self.__connections:list[Manager.__connectionWrapper] = []
         self.__logger = self.__customisedLogs.Manager()
         self.__password = password
@@ -196,3 +126,77 @@ class Manager:
             _new = len(self.__connections)
             self.__logger.info("MYSQL-POOL", "NEW", f"Total Connections: {_old}->{_new}")
         return data
+
+    class __connectionWrapper:
+        import mysql.connector as __mysqlConnector
+        from mysql.connector.pooling import PooledMySQLConnection
+        from mysql.connector.abstracts import MySQLConnectionAbstract
+        from customisedLogs import Manager as LogManager
+        def __init__(self, connection:PooledMySQLConnection|MySQLConnectionAbstract, cleanupCallback, logger:LogManager):
+            from time import time as __time, sleep as __sleep
+            from threading import Thread as __Thread
+            self.__time = __time
+            self.__sleep = __sleep
+            self.__Thread = __Thread
+            self.idle = True
+            self.alive = True
+            self.sendKeepAliveAfter = 15
+            self.raw = connection
+            self.lastUsed = self.__time()
+            self.logger = logger
+            self.cleanupCallback = cleanupCallback
+            self.__Thread(target=self.__pinger).start()
+
+
+        def __pinger(self):
+            """
+            While connection object is alive, keep pinging after every fixed interval
+            :return:
+            """
+            while self.alive:
+                timeUntilNextHeartbeat = self.sendKeepAliveAfter - (self.__time() - self.lastUsed)
+                while timeUntilNextHeartbeat>0:
+                    self.logger.skip("PING", f"Waiting {int(timeUntilNextHeartbeat)} secs")
+                    self.__sleep(timeUntilNextHeartbeat)
+                self.idle = False
+                try:
+                    self.raw.ping(True, 1, 1)
+                    self.logger.skip("PING", f"Success")
+                except self.__mysqlConnector.InterfaceError:
+                    self.logger.skip("PING", f"Failed")
+                    self.safeDeleteConnection()
+                self.idle = True
+            self.safeDeleteConnection()
+
+
+        def safeDeleteConnection(self):
+            """
+            Safely close and cleanup itself
+            :return:
+            """
+            self.alive = False
+            self.cleanupCallback(self)
+            self.raw.disconnect()
+            self.raw.close()
+
+
+        def execute(self, syntax:str):
+            """
+            Internally execute a MySQL syntax
+            :param syntax: Syntax to execute
+            :return:
+            """
+            start = self.__time()
+            while not self.idle and self.__time()-start<4:
+                self.__sleep(1)
+            if self.__time()-start>=4:
+                raise self.__mysqlConnector.InterfaceError("Couldn't Idle Connection")
+            self.idle = False
+            self.raw.consume_results()
+            cursor = self.raw.cursor()
+            cursor.execute(syntax)
+            data = cursor.fetchall()
+            self.lastUsed = self.__time()
+            self.idle = True
+            return data
+
