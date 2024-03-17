@@ -1,4 +1,4 @@
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 
 class Manager:
@@ -154,10 +154,12 @@ class Manager:
             :return:
             """
             while self.alive:
-                timeUntilNextHeartbeat = self.sendKeepAliveAfter - (self.__time() - self.lastUsed)
-                while timeUntilNextHeartbeat>0:
-                    self.logger.skip("PING", f"Waiting {int(timeUntilNextHeartbeat)} secs")
-                    self.__sleep(timeUntilNextHeartbeat)
+                while True:
+                    timeUntilNextHeartbeat = self.sendKeepAliveAfter - (self.__time() - self.lastUsed)
+                    if timeUntilNextHeartbeat>0:
+                        self.logger.skip("PING", f"Waiting {int(timeUntilNextHeartbeat)} secs")
+                        self.__sleep(timeUntilNextHeartbeat)
+                    else: break
                 self.idle = False
                 try:
                     self.raw.ping(True, 1, 1)
