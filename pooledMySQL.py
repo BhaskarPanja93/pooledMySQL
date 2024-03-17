@@ -163,6 +163,7 @@ class Manager:
                 self.idle = False
                 try:
                     self.raw.ping(True, 1, 1)
+                    self.lastUsed = self.__time()
                     self.logger.skip("PING", f"Success")
                 except self.__mysqlConnector.InterfaceError:
                     self.logger.skip("PING", f"Failed")
