@@ -1,4 +1,4 @@
-# pooledMySQL v2.3.0
+# pooledMySQL v2.4.0
 
 ```pip install pooledMySQL --upgrade```
 
