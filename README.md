@@ -2,7 +2,6 @@
 
 ```pip install pooledMySQL --upgrade```
 
-
 ###### <br>A well maintained program to have MySQL connection pool which auto-scales infinitely as required. This would help remove problems caused by multithreading, also removed user hassle of manually creating and deleting connections manually.
 
 
