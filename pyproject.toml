@@ -1,0 +1,25 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pooledMySQL"
+version = "2.4.1"
+description = "A simple way to have MySQL connection pool which auto-scales infinitely as required. This would help remove problems caused by multithreading, also removed user hassle of manually creating and deleting connections manually."
+
+readme = "README.md"
+authors = [{ name = "Bhindi", email = "bhaskarpanja93@gmail.com" }]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]
+keywords = ["mysql", "pool", "threadedmysql", "multithreaded", "thread", "database", "sql"]
+requires-python = ">=3.6"
+dependencies = ["mysql_connector_python", "customisedLogs"]
+
+[project.urls]
+Homepage = "https://github.com/BhaskarPanja93/pooledMySQL"
+
