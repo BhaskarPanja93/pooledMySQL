@@ -1,4 +1,4 @@
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 __packagename__ = "pooledmysql"
 
 
@@ -223,7 +223,7 @@ class Manager:
                 raise self.__mysqlConnector.InterfaceError("Couldn't Idle Connection")
             self.idle = False
             self.raw.consume_results()
-            cursor = self.raw.cursor()
+            cursor = self.raw.cursor(dictionary=True)
             cursor.execute(syntax)
             data = cursor.fetchall()
             self.lastUsed = self.__time()
