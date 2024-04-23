@@ -1,4 +1,4 @@
-# pooledMySQL v2.4.1
+# pooledMySQL v3.0.0
 
 ```pip install pooledMySQL --upgrade```
 
@@ -18,17 +18,17 @@ python3 -m pip install pooledMySQL --upgrade
 ```
 from pooledMySQL import Manager as MySQLManager
 
-executorMySQL = MySQLManager("root", "SomePassword", "DatabaseName")
+executorMySQL = MySQLManager("SomeUsername", "SomePassword", "DatabaseName")
 
-listOfTuples = executorMySQL.execute("SELECT * from someTable")
+listOfDict = executorMySQL.execute("SELECT * from someTable")
 
-for individualTuple in listOfTuples:
-    print(individualTuple[0])
+for individualDict in listOfDict:
+    print(individualDict)
 ```
 
 
 ### <br>Future implementations:
 * Classes for individual tables to make reading and writing of rows way easier for the user
-
+* Table and database creation syntaxes
 
 ###### <br>This project is always open to suggestions and feature requests.

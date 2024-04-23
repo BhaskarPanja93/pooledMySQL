@@ -1,4 +1,4 @@
-__version__ = "2.4.1"
+__version__ = "3.0.0"
 __packagename__ = "pooledmysql"
 
 
@@ -28,8 +28,17 @@ def updatePackage():
         print(f"Ignoring version check for {__packagename__} (Failed)")
 
 
+class Imports:
+    from time import sleep, time
+    from threading import Thread
+    from customisedLogs import Manager as LogManager
+    import mysql.connector as MySQLConnector
+    from mysql.connector.pooling import PooledMySQLConnection
+    from mysql.connector.abstracts import MySQLConnectionAbstract
+
+
 class Manager:
-    def __init__(self, user:str, password:str, dbName:str, host:str="127.0.0.1", port:int=3306, logFile=None):
+    def __init__(self, user:str, password:str, dbName:str, host:str="127.0.0.1", port:int=3306, logOnTerminal:bool|int=True, logFile=None):
         """
         Initialise the Manager and use the execute() functions to use the MySQL connection pool for executing MySQL queries
         :param user: Username to log in to the DB with
@@ -37,16 +46,11 @@ class Manager:
         :param dbName: DataBase name to connect to
         :param host: Server hostname or IP address
         :param port: Port on which the server is connected to
+        :param logOnTerminal: Boolean if logging is needed on terminal
         :param logFile: Filename to log errors to, pass None to turn off file logging
         """
-        from time import sleep as __sleep
-        import mysql.connector as __mysqlConnector
-        import customisedLogs as __customisedLogs
-        self.__sleep = __sleep
-        self.__mysqlConnector = __mysqlConnector
-        self.__customisedLogs = __customisedLogs
         self.__connections:list[Manager.__connectionWrapper] = []
-        self.__logger = self.__customisedLogs.Manager()
+        self.__logger = Imports.LogManager((0 if not logOnTerminal else 100) if type(logOnTerminal)==bool else logOnTerminal)
         self.__password = password
         self.user = user
         self.dbName = dbName
@@ -116,13 +120,14 @@ class Manager:
         _newNeeded = False
         _connectionFound = False
         while not _connectionFound:
+            connObj = None
             try:
                 if not dbRequired:
-                    connObj = self.__connectionWrapper(self.__mysqlConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, autocommit=True), self.__removeConnCallback, self.__logger)
+                    connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, autocommit=True), self.__removeConnCallback, self.__logger)
                     self.__logger.info("MYSQL-POOL", "NEW", "New DB-LESS Connection")
                     _destroyAfterUse = True
                     _connectionFound = True
-                elif self.__connections and not _newNeeded:
+                elif len(self.__connections)!=0 and not _newNeeded:
                     for connObj in self.__connections:
                         if connObj.idle:
                             self.__logger.info("MYSQL-POOL", "REUSE", f"Total Connections: {len(self.__connections)}")
@@ -131,48 +136,42 @@ class Manager:
                     else:
                         _newNeeded = True
                 else:
-                    connObj = self.__connectionWrapper(self.__mysqlConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, database=self.dbName, autocommit=True), self.__removeConnCallback, self.__logger)
+                    connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, database=self.dbName, autocommit=True), self.__removeConnCallback, self.__logger)
                     _appendAfterUse = True
                     _connectionFound = True
+                try:
+                    data = connObj.execute(syntax)
+                except Exception as e:
+                    data = None
+                    if not catchErrors:
+                        self.defaultErrorWriter("EXECUTION FAIL", repr(e), syntax, ignoreLog=not logIntoFile)
+                        raise e
+                if _destroyAfterUse:
+                    connObj.safeDeleteConnection()
+                elif _appendAfterUse:
+                    _old = len(self.__connections)
+                    self.__connections.append(connObj)
+                    _new = len(self.__connections)
+                    self.__logger.info("MYSQL-POOL", "NEW", f"Total Connections: {_old}->{_new}")
+                return data
             except Exception as e:
                 self.defaultErrorWriter("CONNECTION FAIL", repr(e))
                 if not catchErrors:
                     raise e
-                self.__sleep(0.5)
-        try:
-            data = connObj.execute(syntax)
-        except Exception as e:
-            data = None
-            if not catchErrors:
-                self.defaultErrorWriter("EXECUTION FAIL", repr(e), syntax, ignoreLog=not logIntoFile)
-                raise e
-        if _destroyAfterUse: connObj.safeDeleteConnection()
-        elif _appendAfterUse:
-            _old = len(self.__connections)
-            self.__connections.append(connObj)
-            _new = len(self.__connections)
-            self.__logger.info("MYSQL-POOL", "NEW", f"Total Connections: {_old}->{_new}")
-        return data
+                Imports.sleep(0.5)
+
 
     class __connectionWrapper:
-        import mysql.connector as __mysqlConnector
-        from mysql.connector.pooling import PooledMySQLConnection
-        from mysql.connector.abstracts import MySQLConnectionAbstract
-        from customisedLogs import Manager as LogManager
-        def __init__(self, connection:PooledMySQLConnection|MySQLConnectionAbstract, cleanupCallback, logger:LogManager):
-            from time import time as __time, sleep as __sleep
-            from threading import Thread as __Thread
-            self.__time = __time
-            self.__sleep = __sleep
-            self.__Thread = __Thread
+        def __init__(self, connection:Imports.PooledMySQLConnection|Imports.MySQLConnectionAbstract, cleanupCallback, logger:Imports.LogManager):
             self.idle = True
             self.alive = True
-            self.sendKeepAliveAfter = 15
+            self.maxSendKeepAliveAfter = 45
+            self.minSendKeepAliveAfter = 0.001
             self.raw = connection
-            self.lastUsed = self.__time()
+            self.lastUsed = Imports.time()
             self.logger = logger
             self.cleanupCallback = cleanupCallback
-            self.__Thread(target=self.__pinger).start()
+            Imports.Thread(target=self.__pinger).start()
 
 
         def __pinger(self):
@@ -182,18 +181,18 @@ class Manager:
             """
             while self.alive:
                 while True:
-                    timeUntilNextHeartbeat = self.sendKeepAliveAfter - (self.__time() - self.lastUsed)
-                    if timeUntilNextHeartbeat>0:
-                        self.logger.skip("PING", f"Waiting {int(timeUntilNextHeartbeat)} secs")
-                        self.__sleep(timeUntilNextHeartbeat)
+                    timeUntilNextHeartbeat = max(self.minSendKeepAliveAfter, (self.maxSendKeepAliveAfter - (Imports.time() - self.lastUsed)))
+                    print(timeUntilNextHeartbeat)
+                    if timeUntilNextHeartbeat>self.minSendKeepAliveAfter:
+                        Imports.sleep(timeUntilNextHeartbeat)
                     else: break
                 self.idle = False
                 try:
                     self.raw.ping(True, 1, 1)
-                    self.lastUsed = self.__time()
-                    self.logger.skip("PING", f"Success")
-                except self.__mysqlConnector.InterfaceError:
-                    self.logger.skip("PING", f"Failed")
+                    self.lastUsed = Imports.time()
+                    self.logger.skip("PING", f"Success. Waiting {self.maxSendKeepAliveAfter} secs")
+                except Imports.MySQLConnector.InterfaceError:
+                    self.logger.skip("PING", f"Failed. Deleting connection")
                     self.safeDeleteConnection()
                 self.idle = True
             self.safeDeleteConnection()
@@ -216,17 +215,16 @@ class Manager:
             :param syntax: Syntax to execute
             :return:
             """
-            start = self.__time()
-            while not self.idle and self.__time()-start<4:
-                self.__sleep(1)
-            if self.__time()-start>=4:
-                raise self.__mysqlConnector.InterfaceError("Couldn't Idle Connection")
+            start = Imports.time()
+            while not self.idle and Imports.time()-start<4:
+                Imports.sleep(1)
+            if Imports.time()-start>=4:
+                raise Imports.MySQLConnector.InterfaceError("Couldn't Idle Connection")
             self.idle = False
             self.raw.consume_results()
             cursor = self.raw.cursor(dictionary=True)
             cursor.execute(syntax)
             data = cursor.fetchall()
-            self.lastUsed = self.__time()
+            self.lastUsed = Imports.time()
             self.idle = True
             return data
-
