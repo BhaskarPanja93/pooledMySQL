@@ -1,4 +1,4 @@
-__version__ = "3.0.0"
+__version__ = "3.0.1"
 __packagename__ = "pooledmysql"
 
 
@@ -182,7 +182,6 @@ class Manager:
             while self.alive:
                 while True:
                     timeUntilNextHeartbeat = max(self.minSendKeepAliveAfter, (self.maxSendKeepAliveAfter - (Imports.time() - self.lastUsed)))
-                    print(timeUntilNextHeartbeat)
                     if timeUntilNextHeartbeat>self.minSendKeepAliveAfter:
                         Imports.sleep(timeUntilNextHeartbeat)
                     else: break
