@@ -1,4 +1,4 @@
-__version__ = "3.0.1"
+__version__ = "3.0.2"
 __packagename__ = "pooledmysql"
 
 
@@ -95,7 +95,7 @@ class Manager:
         pass
 
 
-    def defaultErrorWriter(self, category:str="", text:str="", extras:str="", ignoreLog:bool=False):
+    def __defaultErrorWriter(self, category:str= "", text:str= "", extras:str= "", ignoreLog:bool=False):
         """
         Default function to write MySQL logs to terminal and logfile
         :param category: Category of the error
@@ -144,10 +144,10 @@ class Manager:
                 except Exception as e:
                     data = None
                     if not catchErrors:
-                        self.defaultErrorWriter("EXECUTION FAIL", repr(e), syntax, ignoreLog=not logIntoFile)
+                        self.__defaultErrorWriter("EXECUTION FAIL", repr(e), syntax, ignoreLog=not logIntoFile)
                         raise e
                 if _destroyAfterUse:
-                    connObj.safeDeleteConnection()
+                    connObj.__safeDeleteConnection()
                 elif _appendAfterUse:
                     _old = len(self.__connections)
                     self.__connections.append(connObj)
@@ -155,7 +155,7 @@ class Manager:
                     self.__logger.info("MYSQL-POOL", "NEW", f"Total Connections: {_old}->{_new}")
                 return data
             except Exception as e:
-                self.defaultErrorWriter("CONNECTION FAIL", repr(e))
+                self.__defaultErrorWriter("CONNECTION FAIL", repr(e))
                 if not catchErrors:
                     raise e
                 Imports.sleep(0.5)
@@ -192,12 +192,12 @@ class Manager:
                     self.logger.skip("PING", f"Success. Waiting {self.maxSendKeepAliveAfter} secs")
                 except Imports.MySQLConnector.InterfaceError:
                     self.logger.skip("PING", f"Failed. Deleting connection")
-                    self.safeDeleteConnection()
+                    self.__safeDeleteConnection()
                 self.idle = True
-            self.safeDeleteConnection()
+            self.__safeDeleteConnection()
 
 
-        def safeDeleteConnection(self):
+        def __safeDeleteConnection(self):
             """
             Safely close and cleanup itself
             :return:
