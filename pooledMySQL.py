@@ -1,4 +1,4 @@
-__version__ = "3.0.2"
+__version__ = "3.0.4"
 __packagename__ = "pooledmysql"
 
 
@@ -32,7 +32,6 @@ class Imports:
     from time import sleep, time
     from threading import Thread
     from customisedLogs import Manager as LogManager
-    from rateLimitedQueues import Manager as RateLimiter
     import mysql.connector as MySQLConnector
     from mysql.connector.pooling import PooledMySQLConnection
     from mysql.connector.abstracts import MySQLConnectionAbstract
@@ -141,7 +140,7 @@ class Manager:
                     _appendAfterUse = True
                     _connectionFound = True
                 try:
-                    data = connObj.rateLimiter.queueAction(connObj.execute, 0, False, None, None, None, syntax)
+                    data = connObj.execute(syntax)
                     if data == -1:
                         continue
                 except Exception as e:
@@ -170,7 +169,6 @@ class Manager:
             self.alive = True
             self.maxSendKeepAliveAfter = 45
             self.minSendKeepAliveAfter = 0.001
-            self.rateLimiter = Imports.RateLimiter(0, self.minSendKeepAliveAfter)
             self.raw = connection
             self.lastUsed = Imports.time()
             self.logger = logger
@@ -219,9 +217,9 @@ class Manager:
             :return:
             """
             start = Imports.time()
-            while not self.idle and Imports.time()-start<4:
+            while self.alive and not self.idle and Imports.time()-start<4:
                 Imports.sleep(1)
-            if Imports.time()-start>=4:
+            if not self.alive:
                 return -1
             self.idle = False
             self.raw.consume_results()
