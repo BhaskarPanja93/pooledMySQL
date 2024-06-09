@@ -1,4 +1,4 @@
-__version__ = "3.0.4"
+__version__ = "3.0.5"
 __packagename__ = "pooledmysql"
 
 
@@ -191,7 +191,6 @@ class Manager:
                 try:
                     self.raw.ping(True, 1, 1)
                     self.lastUsed = Imports.time()
-                    self.logger.skip("PING", f"Success. Waiting {self.maxSendKeepAliveAfter} secs")
                 except Imports.MySQLConnector.InterfaceError:
                     self.logger.skip("PING", f"Failed. Deleting connection")
                     self.__safeDeleteConnection()
