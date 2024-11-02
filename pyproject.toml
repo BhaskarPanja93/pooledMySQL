@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pooledMySQL"
-version = "3.0.5"
+version = "3.0.6"
 description = "A simple way to have MySQL connection pool which auto-scales infinitely as required. This would help remove problems caused by multithreading, also removed user hassle of manually creating and deleting connections manually."
 
 readme = "README.md"

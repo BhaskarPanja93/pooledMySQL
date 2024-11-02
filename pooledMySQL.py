@@ -1,4 +1,4 @@
-__version__ = "3.0.5"
+__version__ = "3.0.6"
 __packagename__ = "pooledmysql"
 
 
@@ -67,7 +67,7 @@ class Manager:
         """
         if connection in self.__connections:
             self.__connections.remove(connection)
-            self.__logger.info("MYSQL-POOL", "CLOSE", f"Total Connections: {len(self.__connections)}")
+            self.__logger.failed("MYSQL-POOL", "CLOSE", f"Total Connections: {len(self.__connections)}")
 
 
     def checkDatabaseStructure(self):
@@ -124,13 +124,13 @@ class Manager:
             try:
                 if not dbRequired:
                     connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, autocommit=True), self.__removeConnCallback, self.__logger)
-                    self.__logger.info("MYSQL-POOL", "NEW", "New DB-LESS Connection")
+                    self.__logger.success("MYSQL-POOL", "NEW", "New DB-LESS Connection")
                     _destroyAfterUse = True
                     _connectionFound = True
                 elif len(self.__connections)!=0 and not _newNeeded:
                     for connObj in self.__connections:
                         if connObj.idle:
-                            self.__logger.info("MYSQL-POOL", "REUSE", f"Total Connections: {len(self.__connections)}")
+                            self.__logger.skip("MYSQL-POOL", "REUSE", f"Current Connections: {len(self.__connections)}")
                             _connectionFound = True
                             break
                     else:
@@ -154,7 +154,7 @@ class Manager:
                     _old = len(self.__connections)
                     self.__connections.append(connObj)
                     _new = len(self.__connections)
-                    self.__logger.info("MYSQL-POOL", "NEW", f"Total Connections: {_old}->{_new}")
+                    self.__logger.success("MYSQL-POOL", "NEW", f"Total Connections: {_old}->{_new}")
                 return data
             except Exception as e:
                 self.__defaultErrorWriter("CONNECTION FAIL", repr(e))
@@ -192,7 +192,7 @@ class Manager:
                     self.raw.ping(True, 1, 1)
                     self.lastUsed = Imports.time()
                 except Imports.MySQLConnector.InterfaceError:
-                    self.logger.skip("PING", f"Failed. Deleting connection")
+                    self.logger.fatal("PING", f"Failed. Deleting connection")
                     self.__safeDeleteConnection()
                 self.idle = True
             self.__safeDeleteConnection()
