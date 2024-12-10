@@ -1,4 +1,4 @@
-# pooledMySQL v3.0.6
+# pooledMySQL v4.0.0
 
 ```pip install pooledMySQL --upgrade```
 
@@ -20,7 +20,7 @@ from pooledMySQL import Manager as MySQLManager
 
 executorMySQL = MySQLManager("SomeUsername", "SomePassword", "DatabaseName")
 
-listOfDict = executorMySQL.execute("SELECT * from someTable")
+listOfDict = executorMySQL.execute("SELECT * from someTable where someColumn = ?", ["someValue"])
 
 for individualDict in listOfDict:
     print(individualDict)

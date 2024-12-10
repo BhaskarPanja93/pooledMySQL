@@ -1,4 +1,4 @@
-__version__ = "3.0.6"
+__version__ = "4.0.0"
 __packagename__ = "pooledmysql"
 
 
@@ -15,8 +15,17 @@ def updatePackage():
         latest = data['info']['version']
         if latest != __version__:
             try:
-                import pip
-                pip.main(["install", __packagename__, "--upgrade"])
+                import subprocess
+                from pip._internal.utils.entrypoints import (
+                    get_best_invocation_for_this_pip,
+                    get_best_invocation_for_this_python,
+                )
+                from pip._internal.utils.compat import WINDOWS
+                if WINDOWS:
+                    pip_cmd = f"{get_best_invocation_for_this_python()} -m pip"
+                else:
+                    pip_cmd = get_best_invocation_for_this_pip()
+                subprocess.run(f"{pip_cmd} install {__packagename__} --upgrade")
                 print(f"\nUpdated package {__packagename__} v{__version__} to v{latest}\nPlease restart the program for changes to take effect")
                 sleep(3)
             except:
@@ -31,32 +40,31 @@ def updatePackage():
 class Imports:
     from time import sleep, time
     from threading import Thread
-    from customisedLogs import Manager as LogManager
+    from customisedLogs import CustomisedLogs
     import mysql.connector as MySQLConnector
-    from mysql.connector.pooling import PooledMySQLConnection
     from mysql.connector.abstracts import MySQLConnectionAbstract
+    from typing import Any
 
 
-class Manager:
-    def __init__(self, user:str, password:str, dbName:str, host:str="127.0.0.1", port:int=3306, logOnTerminal:bool|int=True, logFile=None):
+class PooledMySQL:
+    def __init__(self, user:str, password:str, dbName:str, host:str="127.0.0.1", port:int=3306, closeConnectionOnIdle:bool=True, logOnTerminal:bool|int=True):
         """
-        Initialise the Manager and use the execute() functions to use the MySQL connection pool for executing MySQL queries
+        Initialise the PooledMySQL and use the execute() functions to use the MySQL connection pool for executing MySQL queries
         :param user: Username to log in to the DB with
         :param password: Password for the username provided
         :param dbName: DataBase name to connect to
         :param host: Server hostname or IP address
         :param port: Port on which the server is connected to
-        :param logOnTerminal: Boolean if logging is needed on terminal
-        :param logFile: Filename to log errors to, pass None to turn off file logging
+        :param logOnTerminal: Boolean if logging is needed on terminal, Integer to provide verbosity of logging
         """
-        self.__connections:list[Manager.__connectionWrapper] = []
-        self.__logger = Imports.LogManager((0 if not logOnTerminal else 100) if type(logOnTerminal)==bool else logOnTerminal)
+        self.__connections:list[PooledMySQL.__connectionWrapper] = []
+        self.__logger = Imports.CustomisedLogs((0 if not logOnTerminal else 100) if type(logOnTerminal)==bool else logOnTerminal)
         self.__password = password
         self.user = user
         self.dbName = dbName
         self.host = host
         self.port = port
-        self.logFile = logFile
+        self.closeConnectionOnIdle = closeConnectionOnIdle
 
 
     def __removeConnCallback(self, connection):
@@ -66,165 +74,146 @@ class Manager:
         :return:
         """
         if connection in self.__connections:
+            _old = len(self.__connections)
             self.__connections.remove(connection)
-            self.__logger.failed("MYSQL-POOL", "CLOSE", f"Total Connections: {len(self.__connections)}")
+            _new = len(self.__connections)
+            self.__logger.log(self.__logger.Colors.red_100_accent, "POOL-CONN", f"conn-{connection.id} closed (#Current: {_old}->{_new})")
 
 
-    def checkDatabaseStructure(self):
+    def execute(self, statement:str, params:list=None, dbRequired:bool=True, catchErrors:bool=True)-> None | list[dict[str, Imports.Any]]:
         """
-        Override this function and implement code to check and create the database and the corresponding tables (if needed).
-
-        Example code to create the database:
-        if not self.run(f"SHOW DATABASES LIKE \"{self.db_name}\"", commit_required=False, database_required=False):
-            self.execute(f"CREATE database {self.dbName};", database_required=False, commit_required=False)
-
-        Example code to create a sample table:
-        table_name = "song_data"
-        if not self.run(f"SHOW TABLES LIKE \"{table_name}\"", commit_required=False):
-            self.execute(f'''
-                       CREATE TABLE IF NOT EXISTS `{self.db_name}`.`{table_name}` (
-                       `_id` VARCHAR(100) NOT NULL,
-                       `duration` INT ZEROFILL NULL,
-                       `thumbnail` VARCHAR(100) NULL,
-                       `audio_url` VARCHAR(2000) NULL,
-                       `audio_url_created_at` TIMESTAMP NULL,
-                       PRIMARY KEY (`_id`),
-                       UNIQUE INDEX `_id_UNIQUE` (`_id` ASC) VISIBLE)
-                       ''', commit_required=True))
-        """
-        pass
-
-
-    def __defaultErrorWriter(self, category:str= "", text:str= "", extras:str= "", ignoreLog:bool=False):
-        """
-        Default function to write MySQL logs to terminal and logfile
-        :param category: Category of the error
-        :param text: Main text of the error
-        :param extras: Additional text
-        :param ignoreLog: Boolean specifying if logging for current execution be ignored from log file
-        """
-        logString = self.__logger.fatal("MYSQL-POOL", category, text, extras)
-        if not ignoreLog and self.logFile: open(self.logFile, "a").write(logString + "\n")
-
-
-    def execute(self, syntax:str, catchErrors:bool=False, logIntoFile:bool=True, dbRequired:bool=True)-> None | list:
-        """
-        :param syntax: The MySQL syntax to execute
-        :param catchErrors: If errors are supposed to be caught promptly or sent to the main application
-        :param logIntoFile: Bool to say if logging into file is needed for this syntax. Skipped if ignoreErrors is set to False
+        :param statement: Statement to execute
+        :param params: Parameters (if any) to pass to the statement to form prepared statement
         :param dbRequired: Boolean specifying if the syntax is supposed to be executed on the database or not. A database creation syntax doesn't need the database to be already present, so the argument should be False for those cases
+        :param catchErrors: If errors are supposed to be caught promptly or sent to the main thread
         :return: None or list of tuples depending on the syntax passed
         """
         _destroyAfterUse = False
         _appendAfterUse = False
-        _newNeeded = False
         _connectionFound = False
         while not _connectionFound:
             connObj = None
+            data = None
             try:
                 if not dbRequired:
-                    connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, autocommit=True), self.__removeConnCallback, self.__logger)
-                    self.__logger.success("MYSQL-POOL", "NEW", "New DB-LESS Connection")
+                    connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, autocommit=True), self.closeConnectionOnIdle, self.__removeConnCallback, self.__logger)
+                    self.__logger.log(self.__logger.Colors.light_green_400, "POOL-CONN", f"New DB-LESS Connection conn-{connObj.id}")
                     _destroyAfterUse = True
                     _connectionFound = True
-                elif len(self.__connections)!=0 and not _newNeeded:
+                elif len(self.__connections)!=0:
                     for connObj in self.__connections:
                         if connObj.idle:
-                            self.__logger.skip("MYSQL-POOL", "REUSE", f"Current Connections: {len(self.__connections)}")
+                            self.__logger.log(self.__logger.Colors.blue_grey_600, "POOL-CONN", f"conn-{connObj.id} reused (#Current: {len(self.__connections)})")
                             _connectionFound = True
                             break
-                    else:
-                        _newNeeded = True
-                else:
-                    connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, database=self.dbName, autocommit=True), self.__removeConnCallback, self.__logger)
+                if not _connectionFound:
+                    connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, database=self.dbName, autocommit=True), self.closeConnectionOnIdle, self.__removeConnCallback, self.__logger)
+                    self.__logger.log(self.__logger.Colors.light_green_400, "POOL-CONN", f"New Connection conn-{connObj.id}")
                     _appendAfterUse = True
                     _connectionFound = True
                 try:
-                    data = connObj.execute(syntax)
-                    if data == -1:
+                    if params is None: params = []
+                    data = connObj.internalExecute(statement, params)
+                    if data is None:
                         continue
                 except Exception as e:
                     data = None
+                    self.__logger.log(self.__logger.Colors.red_900, "POOL-EXEC", repr(e), f"\n{{{statement}}}" , tuple(params))
                     if not catchErrors:
-                        self.__defaultErrorWriter("EXECUTION FAIL", repr(e), syntax, ignoreLog=not logIntoFile)
                         raise e
+            except Exception as e:
+                self.__logger.log(self.__logger.Colors.red_700_accent, "POOL-CONN", repr(e))
+                if not catchErrors:
+                    raise e
+                Imports.sleep(0.5)
+            finally:
                 if _destroyAfterUse:
                     connObj.__safeDeleteConnection()
                 elif _appendAfterUse:
                     _old = len(self.__connections)
                     self.__connections.append(connObj)
                     _new = len(self.__connections)
-                    self.__logger.success("MYSQL-POOL", "NEW", f"Total Connections: {_old}->{_new}")
+                    self.__logger.log(self.__logger.Colors.light_green_700_accent, "POOL-CONN", f"conn-{connObj.id} saved (#Current: {_old}->{_new})")
                 return data
-            except Exception as e:
-                self.__defaultErrorWriter("CONNECTION FAIL", repr(e))
-                if not catchErrors:
-                    raise e
-                Imports.sleep(0.5)
 
 
     class __connectionWrapper:
-        def __init__(self, connection:Imports.PooledMySQLConnection|Imports.MySQLConnectionAbstract, cleanupCallback, logger:Imports.LogManager):
+        def __init__(self, connection:Imports.MySQLConnector.pooling.PooledMySQLConnection|Imports.MySQLConnectionAbstract, closeConnectionOnIdle, cleanupCallback, logger:Imports.CustomisedLogs):
+            self.id = connection.connection_id
             self.idle = True
             self.alive = True
-            self.maxSendKeepAliveAfter = 45
-            self.minSendKeepAliveAfter = 0.001
+            self.closeOnIdle = closeConnectionOnIdle
+            self.maxIdlePeriod = 5
             self.raw = connection
             self.lastUsed = Imports.time()
             self.logger = logger
             self.cleanupCallback = cleanupCallback
-            Imports.Thread(target=self.__pinger).start()
 
 
         def __pinger(self):
             """
-            While connection object is alive, keep pinging after every fixed interval
-            :return:
+            If connection object is alive, recursively ping after every fixed interval
+            Makes sure there is only one ping function running per connection
             """
-            while self.alive:
-                while True:
-                    timeUntilNextHeartbeat = self.maxSendKeepAliveAfter - (Imports.time() - self.lastUsed)
-                    if timeUntilNextHeartbeat > self.minSendKeepAliveAfter:
-                        Imports.sleep(timeUntilNextHeartbeat)
-                    else: break
-                self.idle = False
+            Imports.sleep(self.maxIdlePeriod)
+            if self.alive and self.idle and self.lastUsed + self.maxIdlePeriod < Imports.time():
                 try:
+                    self.idle = False
                     self.raw.ping(True, 1, 1)
-                    self.lastUsed = Imports.time()
+                    self.logger.log(self.logger.Colors.grey_400, "POOL-IDLE", f"conn-{self.id} pinged")
+                    self.idle = True
+                    self.__pinger()
                 except Imports.MySQLConnector.InterfaceError:
-                    self.logger.fatal("PING", f"Failed. Deleting connection")
+                    self.logger.log(self.logger.Colors.amber_700, "POOL-IDLE", f"conn-{self.id} Ping Failed")
                     self.__safeDeleteConnection()
-                self.idle = True
-            self.__safeDeleteConnection()
+
+
+        def __killer(self):
+            """
+            If connection object is alive, kill connection on n seconds of idling
+            Makes sure there is only one kill function running per connection
+            """
+            Imports.sleep(self.maxIdlePeriod)
+            if self.alive and self.idle and self.lastUsed + self.maxIdlePeriod < Imports.time():
+                self.logger.log(self.logger.Colors.yellow_300, "POOL-IDLE", f"conn-{self.id} idled")
+                self.__safeDeleteConnection()
 
 
         def __safeDeleteConnection(self):
             """
-            Safely close and cleanup itself
+            Safely close raw connection and cleanup itself
             :return:
             """
-            self.alive = False
-            self.cleanupCallback(self)
-            self.raw.disconnect()
-            self.raw.close()
+            if self.alive:
+                self.alive = False
+                self.cleanupCallback(self)
+                self.raw.disconnect()
+                self.raw.close()
 
 
-        def execute(self, syntax:str):
+        def internalExecute(self, operation: str, params:list)->None|list[dict[str, Imports.Any]]:
             """
             Internally execute a MySQL syntax
-            :param syntax: Syntax to execute
+            :param operation: Main string to be executed
+            :param params:
             :return:
             """
+            error = None
+            data = None
             start = Imports.time()
-            while self.alive and not self.idle and Imports.time()-start<4:
-                Imports.sleep(1)
-            if not self.alive:
-                return -1
+            while self.alive and not self.idle and Imports.time() - start < 4: Imports.sleep(0.1)
+            if not self.alive: return None
             self.idle = False
-            self.raw.consume_results()
-            cursor = self.raw.cursor(dictionary=True)
-            cursor.execute(syntax)
-            data = cursor.fetchall()
+            try:
+                self.raw.consume_results()
+                cursor = self.raw.cursor(dictionary=True, prepared=True)
+                cursor.execute(operation, params)
+                data = cursor.fetchall()
+            except Exception as e:
+                error = e
             self.lastUsed = Imports.time()
             self.idle = True
+            if self.closeOnIdle: Imports.Thread(target=self.__killer).start()
+            else: Imports.Thread(target=self.__pinger).start()
+            if error: raise error
             return data
