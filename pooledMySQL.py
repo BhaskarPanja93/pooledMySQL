@@ -1,4 +1,4 @@
-__version__ = "4.0.0"
+__version__ = "4.0.1"
 __packagename__ = "pooledmysql"
 
 
@@ -97,7 +97,7 @@ class PooledMySQL:
             try:
                 if not dbRequired:
                     connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, autocommit=True), self.closeConnectionOnIdle, self.__removeConnCallback, self.__logger)
-                    self.__logger.log(self.__logger.Colors.light_green_400, "POOL-CONN", f"New DB-LESS Connection conn-{connObj.id}")
+                    self.__logger.log(self.__logger.Colors.light_green_400, "POOL-CONN", f"conn-{connObj.id} (DB-LESS) created")
                     _destroyAfterUse = True
                     _connectionFound = True
                 elif len(self.__connections)!=0:
@@ -108,7 +108,7 @@ class PooledMySQL:
                             break
                 if not _connectionFound:
                     connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, database=self.dbName, autocommit=True), self.closeConnectionOnIdle, self.__removeConnCallback, self.__logger)
-                    self.__logger.log(self.__logger.Colors.light_green_400, "POOL-CONN", f"New Connection conn-{connObj.id}")
+                    self.__logger.log(self.__logger.Colors.light_green_400, "POOL-CONN", f"conn-{connObj.id} created")
                     _appendAfterUse = True
                     _connectionFound = True
                 try:
@@ -121,20 +121,19 @@ class PooledMySQL:
                     self.__logger.log(self.__logger.Colors.red_900, "POOL-EXEC", repr(e), f"\n{{{statement}}}" , tuple(params))
                     if not catchErrors:
                         raise e
-            except Exception as e:
-                self.__logger.log(self.__logger.Colors.red_700_accent, "POOL-CONN", repr(e))
+            except Exception as f:
+                self.__logger.log(self.__logger.Colors.red_700_accent, "POOL-CONN", repr(f))
                 if not catchErrors:
-                    raise e
+                    raise f
                 Imports.sleep(0.5)
-            finally:
-                if _destroyAfterUse:
-                    connObj.__safeDeleteConnection()
-                elif _appendAfterUse:
-                    _old = len(self.__connections)
-                    self.__connections.append(connObj)
-                    _new = len(self.__connections)
-                    self.__logger.log(self.__logger.Colors.light_green_700_accent, "POOL-CONN", f"conn-{connObj.id} saved (#Current: {_old}->{_new})")
-                return data
+            if _destroyAfterUse:
+                connObj.__safeDeleteConnection()
+            elif _appendAfterUse:
+                _old = len(self.__connections)
+                self.__connections.append(connObj)
+                _new = len(self.__connections)
+                self.__logger.log(self.__logger.Colors.light_green_700_accent, "POOL-CONN", f"conn-{connObj.id} saved (#Current: {_old}->{_new})")
+            return data
 
 
     class __connectionWrapper:
@@ -164,7 +163,7 @@ class PooledMySQL:
                     self.idle = True
                     self.__pinger()
                 except Imports.MySQLConnector.InterfaceError:
-                    self.logger.log(self.logger.Colors.amber_700, "POOL-IDLE", f"conn-{self.id} Ping Failed")
+                    self.logger.log(self.logger.Colors.amber_700, "POOL-IDLE", f"conn-{self.id} ping Failed")
                     self.__safeDeleteConnection()
 
 
