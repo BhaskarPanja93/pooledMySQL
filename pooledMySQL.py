@@ -1,4 +1,4 @@
-__version__ = "4.0.1"
+__version__ = "4.0.2"
 __packagename__ = "pooledmysql"
 
 
@@ -60,11 +60,11 @@ class PooledMySQL:
         self.__connections:list[PooledMySQL.__connectionWrapper] = []
         self.__logger = Imports.CustomisedLogs((0 if not logOnTerminal else 100) if type(logOnTerminal)==bool else logOnTerminal)
         self.__password = password
-        self.user = user
-        self.dbName = dbName
-        self.host = host
-        self.port = port
-        self.closeConnectionOnIdle = closeConnectionOnIdle
+        self.__user = user
+        self.__dbName = dbName
+        self.__host = host
+        self.__port = port
+        self.__closeConnectionOnIdle = closeConnectionOnIdle
 
 
     def __removeConnCallback(self, connection):
@@ -96,7 +96,7 @@ class PooledMySQL:
             data = None
             try:
                 if not dbRequired:
-                    connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, autocommit=True), self.closeConnectionOnIdle, self.__removeConnCallback, self.__logger)
+                    connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.__user, host=self.__host, port=self.__port, password=self.__password, autocommit=True), self.__closeConnectionOnIdle, self.__removeConnCallback, self.__logger)
                     self.__logger.log(self.__logger.Colors.light_green_400, "POOL-CONN", f"conn-{connObj.id} (DB-LESS) created")
                     _destroyAfterUse = True
                     _connectionFound = True
@@ -107,7 +107,7 @@ class PooledMySQL:
                             _connectionFound = True
                             break
                 if not _connectionFound:
-                    connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.user, host=self.host, port=self.port, password=self.__password, database=self.dbName, autocommit=True), self.closeConnectionOnIdle, self.__removeConnCallback, self.__logger)
+                    connObj = self.__connectionWrapper(Imports.MySQLConnector.connect(user=self.__user, host=self.__host, port=self.__port, password=self.__password, database=self.__dbName, autocommit=True), self.__closeConnectionOnIdle, self.__removeConnCallback, self.__logger)
                     self.__logger.log(self.__logger.Colors.light_green_400, "POOL-CONN", f"conn-{connObj.id} created")
                     _appendAfterUse = True
                     _connectionFound = True
@@ -127,7 +127,7 @@ class PooledMySQL:
                     raise f
                 Imports.sleep(0.5)
             if _destroyAfterUse:
-                connObj.__safeDeleteConnection()
+                connObj.safeDeleteConnection()
             elif _appendAfterUse:
                 _old = len(self.__connections)
                 self.__connections.append(connObj)
@@ -149,7 +149,7 @@ class PooledMySQL:
             self.cleanupCallback = cleanupCallback
 
 
-        def __pinger(self):
+        def pinger(self):
             """
             If connection object is alive, recursively ping after every fixed interval
             Makes sure there is only one ping function running per connection
@@ -161,13 +161,13 @@ class PooledMySQL:
                     self.raw.ping(True, 1, 1)
                     self.logger.log(self.logger.Colors.grey_400, "POOL-IDLE", f"conn-{self.id} pinged")
                     self.idle = True
-                    self.__pinger()
+                    self.pinger()
                 except Imports.MySQLConnector.InterfaceError:
                     self.logger.log(self.logger.Colors.amber_700, "POOL-IDLE", f"conn-{self.id} ping Failed")
-                    self.__safeDeleteConnection()
+                    self.safeDeleteConnection()
 
 
-        def __killer(self):
+        def killer(self):
             """
             If connection object is alive, kill connection on n seconds of idling
             Makes sure there is only one kill function running per connection
@@ -175,10 +175,10 @@ class PooledMySQL:
             Imports.sleep(self.maxIdlePeriod)
             if self.alive and self.idle and self.lastUsed + self.maxIdlePeriod < Imports.time():
                 self.logger.log(self.logger.Colors.yellow_300, "POOL-IDLE", f"conn-{self.id} idled")
-                self.__safeDeleteConnection()
+                self.safeDeleteConnection()
 
 
-        def __safeDeleteConnection(self):
+        def safeDeleteConnection(self):
             """
             Safely close raw connection and cleanup itself
             :return:
@@ -212,7 +212,7 @@ class PooledMySQL:
                 error = e
             self.lastUsed = Imports.time()
             self.idle = True
-            if self.closeOnIdle: Imports.Thread(target=self.__killer).start()
-            else: Imports.Thread(target=self.__pinger).start()
+            if self.closeOnIdle: Imports.Thread(target=self.killer).start()
+            else: Imports.Thread(target=self.pinger).start()
             if error: raise error
             return data
